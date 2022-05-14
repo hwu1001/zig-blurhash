@@ -32,22 +32,21 @@ pub const Base83Encoder = struct {
         };
     }
 
-    pub fn encode(self: *const Self, dest: []u8, value: i64, length: usize) ![]const u8 {
+    pub fn encode(self: *const Self, dest: []u8, value: usize, length: usize) ![]const u8 {
         std.debug.assert(dest.len >= length);
 
-        var divisor: i64 = 1;
+        var divisor: usize = 1;
         var i: usize = 0;
         while (length > 0 and i < length - 1) {
-            _ = @mulWithOverflow(i64, divisor, 83, &divisor);
+            _ = @mulWithOverflow(usize, divisor, 83, &divisor);
             i += 1;
         }
 
         i = 0;
         while (i < length) {
-            const d = try std.math.divFloor(i64, value, divisor);
-            const m = try std.math.mod(i64, d, @intCast(i64, 83));
-            const index = @intCast(usize, m);
-            divisor = try std.math.divFloor(i64, divisor, @intCast(i64, 83));
+            const d = try std.math.divFloor(usize, value, divisor);
+            const index = try std.math.mod(usize, d, 83);
+            divisor = try std.math.divFloor(usize, divisor, 83);
 
             dest[i] = self.alphabet_chars[index];
             i += 1;
@@ -76,15 +75,15 @@ pub const Base83Decoder = struct {
         return decoder;
     }
 
-    pub fn decode(self: *const Self, source: []const u8) error{InvalidCharacter}!i64 {
-        var val: i64 = 0;
+    pub fn decode(self: *const Self, source: []const u8) error{InvalidCharacter}!usize {
+        var val: usize = 0;
         for (source) |c| {
             const idx = self.char_to_index[c];
             if (idx == Base83Decoder.invalid_char) {
                 return error.InvalidCharacter;
             }
-            _ = @mulWithOverflow(i64, val, 83, &val);
-            _ = @addWithOverflow(i64, val, @intCast(i64, idx), &val);
+            _ = @mulWithOverflow(usize, val, 83, &val);
+            _ = @addWithOverflow(usize, val, @intCast(usize, idx), &val);
         }
         return val;
     }
@@ -107,11 +106,11 @@ test "standard decode" {
     const codecs = standard;
 
     var out = try codecs.Decoder.decode("");
-    try testing.expectEqual(@intCast(i64, 0), out);
+    try testing.expectEqual(@intCast(usize, 0), out);
     out = try codecs.Decoder.decode("foobar");
-    try testing.expectEqual(@intCast(i64, 163902429697), out);
+    try testing.expectEqual(@intCast(usize, 163902429697), out);
     out = try codecs.Decoder.decode("LFE.@D9F01_2%L%MIVD*9Goe-;WB");
-    try testing.expectEqual(@intCast(i64, -1597651267176502418), out);
+    try testing.expectEqual(@intCast(usize, 16849092806533049198), out);
 
     try testing.expectError(error.InvalidCharacter, codecs.Decoder.decode("LFE.@D9F01_2%L%MIVD*9Goe-;Wµ"));
 }
