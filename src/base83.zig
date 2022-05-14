@@ -5,12 +5,55 @@ pub const standard_alphabet_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefg
 
 pub const Codecs = struct {
     alphabet_chars: [83]u8,
+    Encoder: Base83Encoder,
     Decoder: Base83Decoder,
 };
 
 pub const standard = Codecs{
     .alphabet_chars = standard_alphabet_chars,
+    .Encoder = Base83Encoder.init(standard_alphabet_chars),
     .Decoder = Base83Decoder.init(standard_alphabet_chars),
+};
+
+pub const Base83Encoder = struct {
+    const Self = @This();
+
+    alphabet_chars: [83]u8,
+
+    pub fn init(alphabet_chars: [83]u8) Base83Encoder {
+        std.debug.assert(alphabet_chars.len == 83);
+        var char_in_alphabet = [_]bool{false} ** 256;
+        for (alphabet_chars) |c| {
+            std.debug.assert(!char_in_alphabet[c]);
+            char_in_alphabet[c] = true;
+        }
+        return Base83Encoder{
+            .alphabet_chars = alphabet_chars,
+        };
+    }
+
+    pub fn encode(self: *const Self, dest: []u8, value: i64, length: usize) ![]const u8 {
+        std.debug.assert(dest.len >= length);
+
+        var divisor: i64 = 1;
+        var i: usize = 0;
+        while (length > 0 and i < length - 1) {
+            _ = @mulWithOverflow(i64, divisor, 83, &divisor);
+            i += 1;
+        }
+
+        i = 0;
+        while (i < length) {
+            const d = try std.math.divFloor(i64, value, divisor);
+            const m = try std.math.mod(i64, d, @intCast(i64, 83));
+            const index = @intCast(usize, m);
+            divisor = try std.math.divFloor(i64, divisor, @intCast(i64, 83));
+
+            dest[i] = self.alphabet_chars[index];
+            i += 1;
+        }
+        return dest[0..length];
+    }
 };
 
 pub const Base83Decoder = struct {
@@ -46,6 +89,19 @@ pub const Base83Decoder = struct {
         return val;
     }
 };
+
+test "standard encode" {
+    const codecs = standard;
+    var dest = [_]u8{0} ** 100;
+    var out = try codecs.Encoder.encode(dest[0..], 0, 0);
+    try testing.expectEqualSlices(u8, "", out);
+
+    out = try codecs.Encoder.encode(dest[0..], 163902429697, 6);
+    try testing.expectEqualSlices(u8, "foobar", out);
+
+    out = try codecs.Encoder.encode(dest[0..], 100, 2);
+    try testing.expectEqualSlices(u8, "1H", out);
+}
 
 test "standard decode" {
     const codecs = standard;
