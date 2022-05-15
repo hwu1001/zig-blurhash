@@ -17,8 +17,8 @@ const Components = struct {
 
         const size_flag = try base83_codec.Decoder.decode(hash[0..1]);
         // The C and Go impls just let the language do the overflow, but with zig that's
-        // a specific choice to overflow and error or not. Doesn't seem worth returning 
-        // the error since the other implementations don't and it will likely lead to 
+        // a specific choice to overflow and error or not. Doesn't seem worth returning
+        // the error since the other implementations don't and it will likely lead to
         // an invalid hash length on overflow anyways
         var y_components: usize = undefined;
         const y_div = size_flag / 9;
@@ -184,7 +184,7 @@ test "decode" {
 
     const single_color = try decode(testing.allocator, "00OZZy", 1, 1, 0);
     defer testing.allocator.free(single_color);
-    var expected = [_]u8{213, 30, 120, 255};
+    var expected = [_]u8{ 213, 30, 120, 255 };
     try testing.expectEqualSlices(u8, expected[0..], single_color[0..]);
 }
 
