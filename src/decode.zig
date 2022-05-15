@@ -2,7 +2,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const test_data = @import("test_data.zig");
-const base83 = @import("base83.zig").standard;
+const base83 = @import("base83.zig");
+const base83_codec = base83.standard;
 const img = @import("img.zig");
 
 const Components = struct {
@@ -14,7 +15,7 @@ const Components = struct {
             return error.InvalidHash;
         }
 
-        const size_flag = try base83.Decoder.decode(hash[0..1]);
+        const size_flag = try base83_codec.Decoder.decode(hash[0..1]);
         // The C and Go impls just let the language do the overflow, but with zig that's
         // a specific choice to overflow and error or not. Doesn't seem worth returning 
         // the error since the other implementations don't and it will likely lead to 
@@ -52,7 +53,7 @@ pub fn decode(
 ) ![]const u8 {
     const comps = try Components.init(hash);
 
-    const quantised_maximum_value = try base83.Decoder.decode(hash[1..2]);
+    const quantised_maximum_value = try base83_codec.Decoder.decode(hash[1..2]);
     const maximum_value: f64 = (@intToFloat(f64, quantised_maximum_value) + @as(f64, 1)) / @as(f64, 166);
 
     const used_punch: usize = if (punch == 0) 1 else punch;
@@ -146,7 +147,7 @@ fn buildColors(hash: []const u8, punch: usize, max_val: f64, num_colors: usize, 
     var i: usize = 0;
     while (i < num_colors) : (i += 1) {
         if (i == 0) {
-            const val = try base83.Decoder.decode(hash[2..6]);
+            const val = try base83_codec.Decoder.decode(hash[2..6]);
             try colors.append(decodeDC(val));
         } else {
             // C/Go implementions just let these overflow, but
@@ -161,7 +162,7 @@ fn buildColors(hash: []const u8, punch: usize, max_val: f64, num_colors: usize, 
             var upper = try std.math.mul(usize, i, 2);
             upper = try std.math.add(usize, upper, 6);
 
-            const val = try base83.Decoder.decode(hash[lower..upper]);
+            const val = try base83_codec.Decoder.decode(hash[lower..upper]);
             try colors.append(decodeAC(val, max_val * @intToFloat(f64, punch)));
         }
     }
@@ -180,6 +181,59 @@ test "decode" {
     defer testing.allocator.free(out);
     try testing.expect(test_data.expected_decode.len == out.len);
     try testing.expectEqualSlices(u8, test_data.expected_decode[0..], out[0..]);
+
+    const single_color = try decode(testing.allocator, "00OZZy", 1, 1, 0);
+    defer testing.allocator.free(single_color);
+    var expected = [_]u8{213, 30, 120, 255};
+    try testing.expectEqualSlices(u8, expected[0..], single_color[0..]);
+}
+
+test "decode.invalid" {
+    const Case = struct {
+        hash: []const u8,
+        expected_err: anyerror,
+    };
+    const cases = [_]Case{
+        Case{
+            .hash = "00OZZy1",
+            .expected_err = error.InvalidHash,
+        },
+        Case{
+            .hash = "\x000OZZy",
+            .expected_err = base83.Error.InvalidCharacter,
+        },
+        Case{
+            .hash = "0\x00OZZy",
+            .expected_err = base83.Error.InvalidCharacter,
+        },
+        Case{
+            .hash = "00\x00ZZy",
+            .expected_err = base83.Error.InvalidCharacter,
+        },
+        Case{
+            .hash = "00O\x00Zy",
+            .expected_err = base83.Error.InvalidCharacter,
+        },
+        Case{
+            .hash = "00OZ\x00y",
+            .expected_err = base83.Error.InvalidCharacter,
+        },
+        Case{
+            .hash = "00OZZ\x00",
+            .expected_err = base83.Error.InvalidCharacter,
+        },
+        Case{
+            .hash = "LFE.@D\x00F01_2%L%MIVD*9Goe-;WB",
+            .expected_err = base83.Error.InvalidCharacter,
+        },
+    };
+
+    for (cases) |c| {
+        try testing.expectError(
+            c.expected_err,
+            decode(testing.allocator, c.hash, 32, 32, 1),
+        );
+    }
 }
 
 test "components" {
