@@ -1,6 +1,10 @@
 const std = @import("std");
 const testing = std.testing;
 
+pub const Error = error{
+    InvalidCharacter,
+};
+
 pub const standard_alphabet_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz#$%*+,-.:;=?@[]^_{|}~".*;
 
 pub const Codecs = struct {
