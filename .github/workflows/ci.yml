@@ -14,7 +14,7 @@ jobs:
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v1
         with:
-          version: master
+          version: 0.9.1
       - name: Run zig fmt
         run: zig fmt --check --ast-check .
       - name: Run tests
