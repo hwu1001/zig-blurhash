@@ -189,51 +189,45 @@ test "decode" {
 }
 
 test "decode.invalid" {
-    const Case = struct {
-        hash: []const u8,
-        expected_err: anyerror,
-    };
-    const cases = [_]Case{
-        Case{
-            .hash = "00OZZy1",
-            .expected_err = error.InvalidHash,
-        },
-        Case{
-            .hash = "\x000OZZy",
-            .expected_err = base83.Error.InvalidCharacter,
-        },
-        Case{
-            .hash = "0\x00OZZy",
-            .expected_err = base83.Error.InvalidCharacter,
-        },
-        Case{
-            .hash = "00\x00ZZy",
-            .expected_err = base83.Error.InvalidCharacter,
-        },
-        Case{
-            .hash = "00O\x00Zy",
-            .expected_err = base83.Error.InvalidCharacter,
-        },
-        Case{
-            .hash = "00OZ\x00y",
-            .expected_err = base83.Error.InvalidCharacter,
-        },
-        Case{
-            .hash = "00OZZ\x00",
-            .expected_err = base83.Error.InvalidCharacter,
-        },
-        Case{
-            .hash = "LFE.@D\x00F01_2%L%MIVD*9Goe-;WB",
-            .expected_err = base83.Error.InvalidCharacter,
-        },
-    };
+    try testing.expectError(
+        error.InvalidHash,
+        decode(testing.allocator, "00OZZy1", 32, 32, 1)
+    );
 
-    for (cases) |c| {
-        try testing.expectError(
-            c.expected_err,
-            decode(testing.allocator, c.hash, 32, 32, 1),
-        );
-    }
+    try testing.expectError(
+        base83.Error.InvalidCharacter,
+        decode(testing.allocator, "\x000OZZy", 32, 32, 1)
+    );
+
+    try testing.expectError(
+        base83.Error.InvalidCharacter,
+        decode(testing.allocator, "0\x00OZZy", 32, 32, 1)
+    );
+    
+    try testing.expectError(
+        base83.Error.InvalidCharacter,
+        decode(testing.allocator, "00\x00ZZy", 32, 32, 1)
+    );
+
+    try testing.expectError(
+        base83.Error.InvalidCharacter,
+        decode(testing.allocator, "00O\x00Zy", 32, 32, 1)
+    );
+
+    try testing.expectError(
+        base83.Error.InvalidCharacter,
+        decode(testing.allocator, "00OZ\x00y", 32, 32, 1)
+    );
+
+    try testing.expectError(
+        base83.Error.InvalidCharacter,
+        decode(testing.allocator, "00OZZ\x00", 32, 32, 1)
+    );
+
+    try testing.expectError(
+        base83.Error.InvalidCharacter,
+        decode(testing.allocator, "LFE.@D\x00F01_2%L%MIVD*9Goe-;WB", 32, 32, 1)
+    );
 }
 
 test "components" {
