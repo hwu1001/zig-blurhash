@@ -189,45 +189,21 @@ test "decode" {
 }
 
 test "decode.invalid" {
-    try testing.expectError(
-        error.InvalidHash,
-        decode(testing.allocator, "00OZZy1", 32, 32, 1)
-    );
+    try testing.expectError(error.InvalidHash, decode(testing.allocator, "00OZZy1", 32, 32, 1));
 
-    try testing.expectError(
-        base83.Error.InvalidCharacter,
-        decode(testing.allocator, "\x000OZZy", 32, 32, 1)
-    );
+    try testing.expectError(base83.Error.InvalidCharacter, decode(testing.allocator, "\x000OZZy", 32, 32, 1));
 
-    try testing.expectError(
-        base83.Error.InvalidCharacter,
-        decode(testing.allocator, "0\x00OZZy", 32, 32, 1)
-    );
-    
-    try testing.expectError(
-        base83.Error.InvalidCharacter,
-        decode(testing.allocator, "00\x00ZZy", 32, 32, 1)
-    );
+    try testing.expectError(base83.Error.InvalidCharacter, decode(testing.allocator, "0\x00OZZy", 32, 32, 1));
 
-    try testing.expectError(
-        base83.Error.InvalidCharacter,
-        decode(testing.allocator, "00O\x00Zy", 32, 32, 1)
-    );
+    try testing.expectError(base83.Error.InvalidCharacter, decode(testing.allocator, "00\x00ZZy", 32, 32, 1));
 
-    try testing.expectError(
-        base83.Error.InvalidCharacter,
-        decode(testing.allocator, "00OZ\x00y", 32, 32, 1)
-    );
+    try testing.expectError(base83.Error.InvalidCharacter, decode(testing.allocator, "00O\x00Zy", 32, 32, 1));
 
-    try testing.expectError(
-        base83.Error.InvalidCharacter,
-        decode(testing.allocator, "00OZZ\x00", 32, 32, 1)
-    );
+    try testing.expectError(base83.Error.InvalidCharacter, decode(testing.allocator, "00OZ\x00y", 32, 32, 1));
 
-    try testing.expectError(
-        base83.Error.InvalidCharacter,
-        decode(testing.allocator, "LFE.@D\x00F01_2%L%MIVD*9Goe-;WB", 32, 32, 1)
-    );
+    try testing.expectError(base83.Error.InvalidCharacter, decode(testing.allocator, "00OZZ\x00", 32, 32, 1));
+
+    try testing.expectError(base83.Error.InvalidCharacter, decode(testing.allocator, "LFE.@D\x00F01_2%L%MIVD*9Goe-;WB", 32, 32, 1));
 }
 
 test "components" {
