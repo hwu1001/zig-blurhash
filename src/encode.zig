@@ -1,11 +1,12 @@
 const std = @import("std");
 const testing = std.testing;
 const img = @import("img.zig");
+const Components = @import("decode.zig").Components;
 const base83 = @import("base83.zig");
 const base83_codec = base83.standard;
 const channel_to_linear = tbl: {
     // the std.math fns used in the img.sRGBToLinear have
-    // quite a few branches so set branch quota to be pretty high
+    // quite a few branches so adjust branch quota
     @setEvalBranchQuota(100000);
     break :tbl initLinearTable(256);
 };
@@ -57,16 +58,15 @@ pub fn encode(
                 var x: usize = 0;
                 while (x < width) : (x += 1) {
                     // TODO: Probably should catch the indexing errors that could occur here
-                    const lin_r = channel_to_linear[rgba[3 * x + 0 + y * bytes_per_row]];
-                    const lin_g = channel_to_linear[rgba[3 * x + 1 + y * bytes_per_row]];
-                    const lin_b = channel_to_linear[rgba[3 * x + 2 + y * bytes_per_row]];
+                    // n_channels is assumed to be 4 for rgba
+                    // n_channels * x + index + y * bytes_per_row
+                    const lin_r = channel_to_linear[rgba[4 * x + 0 + y * bytes_per_row]];
+                    const lin_g = channel_to_linear[rgba[4 * x + 1 + y * bytes_per_row]];
+                    const lin_b = channel_to_linear[rgba[4 * x + 2 + y * bytes_per_row]];
 
                     const x_basis: f64 = @cos(std.math.pi * @intToFloat(f64, xc) * @intToFloat(f64, x) / @intToFloat(f64, width));
                     const y_basis: f64 = @cos(std.math.pi * @intToFloat(f64, yc) * @intToFloat(f64, y) / @intToFloat(f64, height));
                     const basis = x_basis * y_basis;
-                    // r = try std.math.add(f64, r, basis * lin_r);
-                    // g = try std.math.add(f64, g, basis * lin_g);
-                    // b = try std.math.add(f64, b, basis * lin_b);
                     r += basis * lin_r;
                     g += basis * lin_g;
                     b += basis * lin_b;
@@ -74,7 +74,8 @@ pub fn encode(
             }
 
             const normalization: f64 = if (xc == 0 and yc == 0) @as(f64, 1) else @as(f64, 2);
-            const scale = normalization / (@intToFloat(f64, width) * @intToFloat(f64, height));
+            const htw = try std.math.mul(usize, width, height);
+            const scale = normalization / @intToFloat(f64, htw);
             // TODO: Probably should catch any indexing/overflow errors here too
             factors[0 + xc * 3 + yc * 3 * x_components] = r * scale;
             factors[1 + xc * 3 + yc * 3 * x_components] = g * scale;
@@ -101,14 +102,17 @@ pub fn encode(
         }
         var calc_qmv: f64 = @floor(actual_max_val * @as(f64, 166) - @as(f64, 0.5));
         calc_qmv = std.math.min(@as(f64, 82), calc_qmv);
-        quantised_maximum_value = @floatToInt(usize, std.math.max(@as(f64, 0), calc_qmv));
+        const qmv_f = std.math.max(@as(f64, 0), calc_qmv);
+        quantised_maximum_value = @floatToInt(usize, qmv_f);
+        maximum_value = (qmv_f + 1) / 166;
     }
 
     out = try base83_codec.Encoder.encode(blurhash[bh_len..], quantised_maximum_value, 1);
     bh_len += out.len;
 
     // DC value
-    out = try base83_codec.Encoder.encode(blurhash[bh_len..], encodeDC(factors[0], factors[1], factors[2]), 4);
+    const edc = encodeDC(factors[0], factors[1], factors[2]);
+    out = try base83_codec.Encoder.encode(blurhash[bh_len..], edc, 4);
     bh_len += out.len;
 
     // AC values
@@ -128,8 +132,6 @@ pub fn encode(
     }
 
     // this can't overflow a usize because max of x/y components is 9
-    // std.debug.print("bh_len: {}\n", .{bh_len});
-    // std.debug.print("bh: {s}\n", .{blurhash[0..bh_len]});
     if (bh_len != @as(usize, 4 + 2 * x_components * y_components)) {
         return error.InvalidHashLength;
     }
@@ -168,9 +170,93 @@ fn quantAC(quant: f64, max_val: f64) usize {
     return @floatToInt(usize, v);
 }
 
+test "encode.png_file" {
+    const rgba = @import("test_data.zig").test_img;
+    const actual = try encode(4, 3, 204, 204, rgba[0..]);
+    try testing.expectEqualSlices(u8, "LFE.@D9F01_2%L%MIVD*9Goe-;WB", actual);
+}
+
 test "encode.empty_image" {
     // "Empty" in this case is an image of 100 x 100 with 0 value for all rgba values
-    const rgba = [_]u8 {0} ** 40000;
+    const rgba = [_]u8{0} ** 40000;
     const actual = try encode(4, 3, 100, 100, rgba[0..]);
     try testing.expectEqualSlices(u8, "L00000fQfQfQfQfQfQfQfQfQfQfQ", actual);
+}
+
+test "encode.single_color" {
+    var rgba: [40000]u8 = undefined;
+    var idx: usize = 0;
+    const px_color = [_]u8{ 213, 30, 120, 255 };
+    var y: usize = 0;
+    while (y < 100) : (y += 1) {
+        var x: usize = 0;
+        while (x < 100) : (x += 1) {
+            for (px_color) |c| {
+                rgba[idx] = c;
+                idx += 1;
+            }
+        }
+    }
+    const actual = try encode(1, 1, 100, 100, rgba[0..]);
+    try testing.expectEqualSlices(u8, "00OZZy", actual);
+}
+
+test "encode.invalid_components" {
+    const rgba = [_]u8{0} ** 10;
+    try testing.expectError(error.InvalidComponentValue, encode(0, 1, 100, 100, rgba[0..]));
+    try testing.expectError(error.InvalidComponentValue, encode(1, 0, 100, 100, rgba[0..]));
+    try testing.expectError(error.InvalidComponentValue, encode(0, 0, 100, 100, rgba[0..]));
+    try testing.expectError(error.InvalidComponentValue, encode(10, 1, 100, 100, rgba[0..]));
+    try testing.expectError(error.InvalidComponentValue, encode(1, 10, 100, 100, rgba[0..]));
+    try testing.expectError(error.InvalidComponentValue, encode(10, 10, 100, 100, rgba[0..]));
+}
+
+test "encode.size_flag" {
+    const rgba = [_]u8{0} ** 40000;
+    {
+        const out = try encode(1, 2, 100, 100, rgba[0..]);
+        const components = try Components.init(out[0..]);
+        try testing.expectEqual(@as(usize, 1), components.x);
+        try testing.expectEqual(@as(usize, 2), components.y);
+    }
+    {
+        const out = try encode(9, 8, 100, 100, rgba[0..]);
+        const components = try Components.init(out[0..]);
+        try testing.expectEqual(@as(usize, 9), components.x);
+        try testing.expectEqual(@as(usize, 8), components.y);
+    }
+    {
+        const out = try encode(5, 4, 100, 100, rgba[0..]);
+        const components = try Components.init(out[0..]);
+        try testing.expectEqual(@as(usize, 5), components.x);
+        try testing.expectEqual(@as(usize, 4), components.y);
+    }
+    {
+        const out = try encode(2, 3, 100, 100, rgba[0..]);
+        const components = try Components.init(out[0..]);
+        try testing.expectEqual(@as(usize, 2), components.x);
+        try testing.expectEqual(@as(usize, 3), components.y);
+    }
+    {
+        const out = try encode(4, 5, 100, 100, rgba[0..]);
+        const components = try Components.init(out[0..]);
+        try testing.expectEqual(@as(usize, 4), components.x);
+        try testing.expectEqual(@as(usize, 5), components.y);
+    }
+    {
+        const out = try encode(7, 3, 100, 100, rgba[0..]);
+        const components = try Components.init(out[0..]);
+        try testing.expectEqual(@as(usize, 7), components.x);
+        try testing.expectEqual(@as(usize, 3), components.y);
+    }
+}
+
+test "encode.channel_to_linear" {
+    const expected = @import("test_data.zig").expected_channel_to_linear;
+    try testing.expect(expected.len == channel_to_linear.len);
+    const epsilon = 0.000001;
+    var i: usize = 0;
+    while (i < expected.len) : (i += 1) {
+        try testing.expect(std.math.approxEqAbs(f64, expected[i], channel_to_linear[i], epsilon));
+    }
 }
