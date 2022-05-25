@@ -37,7 +37,7 @@ pub fn encode(
         return error.InvalidComponentValue;
     }
 
-    var buffer: [10]u8 = undefined; 
+    var buffer: [10]u8 = undefined;
     var blurhash = try std.ArrayList(u8).initCapacity(allocator, (2 + 4 + (9 * 9 - 1) * 2 + 1)); // the max size from the C impl
     defer blurhash.deinit();
 
@@ -118,7 +118,6 @@ pub fn encode(
     const edc = encodeDC(factors[0], factors[1], factors[2]);
     out = try base83_codec.Encoder.encode(buffer[0..], edc, 4);
     try blurhash.appendSlice(out);
-
 
     // AC values
     var i: usize = 0;
