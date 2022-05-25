@@ -6,7 +6,7 @@ const base83 = @import("base83.zig");
 const base83_codec = base83.standard;
 const img = @import("img.zig");
 
-const Components = struct {
+pub const Components = struct {
     x: usize,
     y: usize,
 
