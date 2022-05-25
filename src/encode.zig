@@ -1,5 +1,7 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const testing = std.testing;
+const test_data = @import("test_data.zig");
 const img = @import("img.zig");
 const Components = @import("decode.zig").Components;
 const base83 = @import("base83.zig");
@@ -21,6 +23,7 @@ fn initLinearTable(comptime n: usize) [n]f64 {
 }
 
 pub fn encode(
+    allocator: Allocator,
     x_components: usize,
     y_components: usize,
     width: usize,
@@ -34,14 +37,15 @@ pub fn encode(
         return error.InvalidComponentValue;
     }
 
-    var blurhash: [2 + 4 + (9 * 9 - 1) * 2 + 1]u8 = undefined;
-    var bh_len: usize = 0;
+    var buffer: [10]u8 = undefined; 
+    var blurhash = try std.ArrayList(u8).initCapacity(allocator, (2 + 4 + (9 * 9 - 1) * 2 + 1)); // the max size from the C impl
+    defer blurhash.deinit();
 
     const size_flag: usize = (x_components - 1) + (y_components - 1) * 9;
-    var out = try base83_codec.Encoder.encode(blurhash[bh_len..], size_flag, 1);
-    bh_len += out.len;
+    var out = try base83_codec.Encoder.encode(buffer[0..], size_flag, 1);
+    try blurhash.appendSlice(out);
 
-    // y_components * x_components * 3 - just use max amount to avoid allocator usage
+    // y_components * x_components * 3 - just use max amount possible
     var factors = [_]f64{0} ** (9 * 9 * 3);
 
     const bytes_per_row: usize = width * 4; // 4 is from rgba
@@ -107,19 +111,20 @@ pub fn encode(
         maximum_value = (qmv_f + 1) / 166;
     }
 
-    out = try base83_codec.Encoder.encode(blurhash[bh_len..], quantised_maximum_value, 1);
-    bh_len += out.len;
+    out = try base83_codec.Encoder.encode(buffer[0..], quantised_maximum_value, 1);
+    try blurhash.appendSlice(out);
 
     // DC value
     const edc = encodeDC(factors[0], factors[1], factors[2]);
-    out = try base83_codec.Encoder.encode(blurhash[bh_len..], edc, 4);
-    bh_len += out.len;
+    out = try base83_codec.Encoder.encode(buffer[0..], edc, 4);
+    try blurhash.appendSlice(out);
+
 
     // AC values
     var i: usize = 0;
     while (i < ac_count) : (i += 1) {
         out = try base83_codec.Encoder.encode(
-            blurhash[bh_len..],
+            buffer[0..],
             encodeAC(
                 factors[3 + (i * 3 + 0)],
                 factors[3 + (i * 3 + 1)],
@@ -128,15 +133,15 @@ pub fn encode(
             ),
             2,
         );
-        bh_len += out.len;
+        try blurhash.appendSlice(out);
     }
 
     // this can't overflow a usize because max of x/y components is 9
-    if (bh_len != @as(usize, 4 + 2 * x_components * y_components)) {
+    if (blurhash.items.len != @as(usize, 4 + 2 * x_components * y_components)) {
         return error.InvalidHashLength;
     }
 
-    return blurhash[0..bh_len];
+    return blurhash.toOwnedSlice();
 }
 
 fn encodeDC(r: f64, g: f64, b: f64) usize {
@@ -171,15 +176,17 @@ fn quantAC(quant: f64, max_val: f64) usize {
 }
 
 test "encode.png_file" {
-    const rgba = @import("test_data.zig").test_img;
-    const actual = try encode(4, 3, 204, 204, rgba[0..]);
+    const rgba = test_data.test_img;
+    const actual = try encode(testing.allocator, 4, 3, 204, 204, rgba[0..]);
+    defer testing.allocator.free(actual);
     try testing.expectEqualSlices(u8, "LFE.@D9F01_2%L%MIVD*9Goe-;WB", actual);
 }
 
 test "encode.empty_image" {
     // "Empty" in this case is an image of 100 x 100 with 0 value for all rgba values
     const rgba = [_]u8{0} ** 40000;
-    const actual = try encode(4, 3, 100, 100, rgba[0..]);
+    const actual = try encode(testing.allocator, 4, 3, 100, 100, rgba[0..]);
+    defer testing.allocator.free(actual);
     try testing.expectEqualSlices(u8, "L00000fQfQfQfQfQfQfQfQfQfQfQ", actual);
 }
 
@@ -197,54 +204,62 @@ test "encode.single_color" {
             }
         }
     }
-    const actual = try encode(1, 1, 100, 100, rgba[0..]);
+    const actual = try encode(testing.allocator, 1, 1, 100, 100, rgba[0..]);
+    defer testing.allocator.free(actual);
     try testing.expectEqualSlices(u8, "00OZZy", actual);
 }
 
 test "encode.invalid_components" {
     const rgba = [_]u8{0} ** 10;
-    try testing.expectError(error.InvalidComponentValue, encode(0, 1, 100, 100, rgba[0..]));
-    try testing.expectError(error.InvalidComponentValue, encode(1, 0, 100, 100, rgba[0..]));
-    try testing.expectError(error.InvalidComponentValue, encode(0, 0, 100, 100, rgba[0..]));
-    try testing.expectError(error.InvalidComponentValue, encode(10, 1, 100, 100, rgba[0..]));
-    try testing.expectError(error.InvalidComponentValue, encode(1, 10, 100, 100, rgba[0..]));
-    try testing.expectError(error.InvalidComponentValue, encode(10, 10, 100, 100, rgba[0..]));
+    try testing.expectError(error.InvalidComponentValue, encode(testing.allocator, 0, 1, 100, 100, rgba[0..]));
+    try testing.expectError(error.InvalidComponentValue, encode(testing.allocator, 1, 0, 100, 100, rgba[0..]));
+    try testing.expectError(error.InvalidComponentValue, encode(testing.allocator, 0, 0, 100, 100, rgba[0..]));
+    try testing.expectError(error.InvalidComponentValue, encode(testing.allocator, 10, 1, 100, 100, rgba[0..]));
+    try testing.expectError(error.InvalidComponentValue, encode(testing.allocator, 1, 10, 100, 100, rgba[0..]));
+    try testing.expectError(error.InvalidComponentValue, encode(testing.allocator, 10, 10, 100, 100, rgba[0..]));
 }
 
 test "encode.size_flag" {
     const rgba = [_]u8{0} ** 40000;
     {
-        const out = try encode(1, 2, 100, 100, rgba[0..]);
+        const out = try encode(testing.allocator, 1, 2, 100, 100, rgba[0..]);
+        defer testing.allocator.free(out);
         const components = try Components.init(out[0..]);
         try testing.expectEqual(@as(usize, 1), components.x);
         try testing.expectEqual(@as(usize, 2), components.y);
     }
     {
-        const out = try encode(9, 8, 100, 100, rgba[0..]);
+        const out = try encode(testing.allocator, 9, 8, 100, 100, rgba[0..]);
+        defer testing.allocator.free(out);
         const components = try Components.init(out[0..]);
         try testing.expectEqual(@as(usize, 9), components.x);
         try testing.expectEqual(@as(usize, 8), components.y);
     }
     {
-        const out = try encode(5, 4, 100, 100, rgba[0..]);
+        const out = try encode(testing.allocator, 5, 4, 100, 100, rgba[0..]);
+        defer testing.allocator.free(out);
         const components = try Components.init(out[0..]);
         try testing.expectEqual(@as(usize, 5), components.x);
         try testing.expectEqual(@as(usize, 4), components.y);
     }
     {
-        const out = try encode(2, 3, 100, 100, rgba[0..]);
+        const out = try encode(testing.allocator, 2, 3, 100, 100, rgba[0..]);
+
+        defer testing.allocator.free(out);
         const components = try Components.init(out[0..]);
         try testing.expectEqual(@as(usize, 2), components.x);
         try testing.expectEqual(@as(usize, 3), components.y);
     }
     {
-        const out = try encode(4, 5, 100, 100, rgba[0..]);
+        const out = try encode(testing.allocator, 4, 5, 100, 100, rgba[0..]);
+        defer testing.allocator.free(out);
         const components = try Components.init(out[0..]);
         try testing.expectEqual(@as(usize, 4), components.x);
         try testing.expectEqual(@as(usize, 5), components.y);
     }
     {
-        const out = try encode(7, 3, 100, 100, rgba[0..]);
+        const out = try encode(testing.allocator, 7, 3, 100, 100, rgba[0..]);
+        defer testing.allocator.free(out);
         const components = try Components.init(out[0..]);
         try testing.expectEqual(@as(usize, 7), components.x);
         try testing.expectEqual(@as(usize, 3), components.y);
@@ -252,7 +267,7 @@ test "encode.size_flag" {
 }
 
 test "encode.channel_to_linear" {
-    const expected = @import("test_data.zig").expected_channel_to_linear;
+    const expected = test_data.expected_channel_to_linear;
     try testing.expect(expected.len == channel_to_linear.len);
     const epsilon = 0.000001;
     var i: usize = 0;
